@@ -113,12 +113,33 @@ def marginal_cpl(spend_daily, a, b):
     return 1 / (a * b * (spend_daily ** (b - 1)))
 
 # Fit
+# Fit con filtro de spend mínimo (anti-outliers)
 results = {}
+
+MIN_SPEND_THRESHOLD = 100  # puedes ajustar 50, 100, 200 según tu caso
+
 for canal in df["Canal"].unique():
+
     data = df[df["Canal"] == canal]
+
+    # 🔹 Eliminamos días con spend demasiado bajo
+    data = data[data["Spend"] > MIN_SPEND_THRESHOLD]
+
+    # Solo ajustamos si quedan suficientes datos
     if len(data) > 10:
-        params, _ = curve_fit(power_model, data["Spend"], data["Leads"], maxfev=20000)
-        results[canal] = {"a": params[0], "b": params[1]}
+
+        params, _ = curve_fit(
+            power_model,
+            data["Spend"],
+            data["Leads"],
+            maxfev=20000
+        )
+
+        results[canal] = {
+            "a": params[0],
+            "b": params[1]
+        }
+
 
 params_df = pd.DataFrame(results).T
 
@@ -260,3 +281,4 @@ fig_single.update_layout(
 )
 
 st.plotly_chart(fig_single, use_container_width=True)
+
