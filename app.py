@@ -3,22 +3,26 @@ import pandas as pd
 import numpy as np
 from scipy.optimize import curve_fit
 
-# ==============================
-# CONFIG
-# ==============================
+# =====================================================
+# PAGE CONFIG
+# =====================================================
 
 st.set_page_config(
-    page_title="Lead & Sales Scaling Simulator",
+    page_title="Performance Scaling Dashboard",
     layout="wide"
 )
 
+# =====================================================
+# GLOBAL CONFIG
+# =====================================================
+
 DAYS_IN_MONTH = 30
 TARGET_CPL = 40
-TARGET_CPV = 120  # opcional
+TARGET_CPV = 120
 
-# ==============================
+# =====================================================
 # CONVERSION RATE DICTIONARY
-# ==============================
+# =====================================================
 
 CR_VENTA = {
     "Display": 0.0473,
@@ -31,26 +35,37 @@ CR_VENTA = {
     "Terceros": 0.0502
 }
 
-# ==============================
+# =====================================================
 # LOAD DATA
-# ==============================
+# =====================================================
 
 @st.cache_data
 def load_data():
     df = pd.read_csv("Raw_data_curvas.csv")
+    df.columns = df.columns.str.strip()
+
     df = df.rename(columns={
         "SupraCanal": "Canal",
+        "Inversion_Fee": "Spend",
         "Leads Brutos": "Leads"
     })
+
+    required_cols = ["Canal", "Spend", "Leads"]
+    for col in required_cols:
+        if col not in df.columns:
+            st.error(f"Falta la columna obligatoria: {col}")
+            st.stop()
+
     df["Leads"] = df["Leads"].fillna(0)
     df = df[df["Spend"] > 0]
+
     return df
 
 df = load_data()
 
-# ==============================
-# MODEL
-# ==============================
+# =====================================================
+# MODEL FUNCTIONS
+# =====================================================
 
 def power_model(x, a, b):
     return a * (x ** b)
@@ -61,31 +76,35 @@ def monthly_leads(spend_monthly, a, b):
 def marginal_cpl(spend_daily, a, b):
     return 1 / (a * b * (spend_daily ** (b - 1)))
 
-# Fit por canal
+# =====================================================
+# FIT MODEL BY CHANNEL
+# =====================================================
+
 results = {}
 
 for canal in df["Canal"].unique():
     data = df[df["Canal"] == canal]
     x = data["Spend"].values
     y = data["Leads"].values
+
     if len(x) > 10:
         params, _ = curve_fit(power_model, x, y, maxfev=20000)
         results[canal] = {"a": params[0], "b": params[1]}
 
 params_df = pd.DataFrame(results).T
 
-# ==============================
+# =====================================================
 # HEADER
-# ==============================
+# =====================================================
 
 st.markdown("""
 <h1 style='text-align: center;'>📊 Performance Scaling Dashboard</h1>
 <hr>
 """, unsafe_allow_html=True)
 
-# ==============================
+# =====================================================
 # USER INPUT
-# ==============================
+# =====================================================
 
 colA, colB = st.columns([2,2])
 
@@ -95,12 +114,15 @@ with colA:
 with colB:
     extra_budget = st.slider(
         "Presupuesto extra mensual (€)",
-        0, 50000, 5000, step=1000
+        min_value=0,
+        max_value=50000,
+        value=5000,
+        step=1000
     )
 
-# ==============================
+# =====================================================
 # CALCULATIONS
-# ==============================
+# =====================================================
 
 a = params_df.loc[canal, "a"]
 b = params_df.loc[canal, "b"]
@@ -123,9 +145,9 @@ ventas_nuevas = new_leads * cr
 incremental_ventas = ventas_nuevas - ventas_actuales
 new_cpv = new_monthly_spend / ventas_nuevas
 
-# ==============================
-# METRICS DISPLAY
-# ==============================
+# =====================================================
+# METRICS SECTION
+# =====================================================
 
 st.markdown("### 📈 Impacto en Leads")
 
@@ -143,9 +165,9 @@ col4.metric("Ventas Incrementales", f"{incremental_ventas:,.0f}")
 col5.metric("Nuevo CPV (€)", f"{new_cpv:.2f}")
 col6.metric("CR Venta", f"{cr*100:.2f}%")
 
-# ==============================
-# SATURATION STATUS
-# ==============================
+# =====================================================
+# STATUS INDICATORS
+# =====================================================
 
 if new_cpl <= TARGET_CPL:
     st.success("🟢 CPL dentro de objetivo")
@@ -159,11 +181,12 @@ if new_cpv <= TARGET_CPV:
 else:
     st.warning("⚠️ CPV por encima del objetivo")
 
-# ==============================
-# VISUALS
-# ==============================
+# =====================================================
+# VISUALIZATION
+# =====================================================
 
 spend_range = np.linspace(0, current_monthly_spend * 1.6, 200)
+
 leads_range = monthly_leads(spend_range, a, b)
 ventas_range = leads_range * cr
 
@@ -172,5 +195,7 @@ chart_df = pd.DataFrame({
     "Leads": leads_range,
     "Ventas": ventas_range
 }).set_index("Spend")
+
+st.markdown("### 📊 Curvas de Saturación")
 
 st.line_chart(chart_df)
