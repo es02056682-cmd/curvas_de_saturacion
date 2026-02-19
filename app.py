@@ -58,6 +58,18 @@ CR_VENTA = {
     "Terceros": 0.0502
 }
 
+CHANNEL_COLORS = {
+    "SEM_Marca_Pura": "#6A0DAD",        # morado oscuro
+    "SEM_Marca_Derivada": "#B57EDC",    # morado claro
+    "Terceros": "#2E7D32",              # verde
+    "Pmax": "#1C1C1C",                  # negro
+    "Paid_Social": "#F57C00",           # naranja
+    "Whatsapp": "#8D6E63",              # marrón
+    "SEM_Generico": "#0288D1",          # azul
+    "SEM_Competencia": "#E91E63",       # rosa
+    "Display": "#7CB342"                # verde claro
+}
+
 # =====================================================
 # LOAD DATA
 # =====================================================
@@ -247,3 +259,4 @@ else:
 
 if new_cpv > TARGET_CPV:
     st.warning("⚠️ CPV por encima del objetivo")
+
