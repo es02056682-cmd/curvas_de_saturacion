@@ -157,7 +157,16 @@ st.markdown('<div class="section-title">Visión General – CPL y CPV por Canal<
 
 col1, col2 = st.columns(2)
 
-min_real_spend = df["Spend"].mean() * DAYS_IN_MONTH * 0.5
+# Spend mínimo operativo real (evita explosión matemática)
+avg_monthly_spend = df["Spend"].mean() * DAYS_IN_MONTH
+min_real_spend = avg_monthly_spend * 0.3  # empieza al 30% del spend medio
+
+spend_range = np.linspace(
+    min_real_spend,
+    df["Spend"].max() * DAYS_IN_MONTH * 1.3,
+    200
+)
+
 
 fig_cpl = go.Figure()
 fig_cpv = go.Figure()
@@ -281,5 +290,6 @@ fig_single.update_layout(
 )
 
 st.plotly_chart(fig_single, use_container_width=True)
+
 
 
