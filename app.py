@@ -112,26 +112,30 @@ def monthly_leads(spend_monthly, a, b):
 def marginal_cpl(spend_daily, a, b):
     return 1 / (a * b * (spend_daily ** (b - 1)))
 
-# Fit
-# Fit con filtro de spend mínimo (anti-outliers)
-results = {}
+# =====================================================
+# FIT ROBUSTO (AJUSTE ECONÓMICO)
+# =====================================================
 
-MIN_SPEND_THRESHOLD = 100  # puedes ajustar 50, 100, 200 según tu caso
+results = {}
+MIN_SPEND_THRESHOLD = 100  # filtro anti-ruido
 
 for canal in df["Canal"].unique():
 
     data = df[df["Canal"] == canal]
 
-    # 🔹 Eliminamos días con spend demasiado bajo
+    # 🔹 eliminar días de spend muy bajo
     data = data[data["Spend"] > MIN_SPEND_THRESHOLD]
 
-    # Solo ajustamos si quedan suficientes datos
     if len(data) > 10:
+
+        x = data["Spend"].values
+        y = data["Leads"].values
 
         params, _ = curve_fit(
             power_model,
-            data["Spend"],
-            data["Leads"],
+            x,
+            y,
+            bounds=([0, 0], [np.inf, 1]),  # 🔒 restricción 0 ≤ b ≤ 1
             maxfev=20000
         )
 
@@ -139,7 +143,6 @@ for canal in df["Canal"].unique():
             "a": params[0],
             "b": params[1]
         }
-
 
 params_df = pd.DataFrame(results).T
 
@@ -157,16 +160,15 @@ st.markdown('<div class="section-title">Visión General – CPL y CPV por Canal<
 
 col1, col2 = st.columns(2)
 
-# Spend mínimo operativo real (evita explosión matemática)
+# Rango operativo realista (evita explosión matemática)
 avg_monthly_spend = df["Spend"].mean() * DAYS_IN_MONTH
-min_real_spend = avg_monthly_spend * 0.3  # empieza al 30% del spend medio
+min_real_spend = avg_monthly_spend * 0.3
 
 spend_range = np.linspace(
     min_real_spend,
     df["Spend"].max() * DAYS_IN_MONTH * 1.3,
     200
 )
-
 
 fig_cpl = go.Figure()
 fig_cpv = go.Figure()
@@ -249,7 +251,6 @@ incremental_ventas = ventas_nuevas - ventas_actuales
 new_cpl = new_monthly_spend / new_leads
 new_cpv = new_monthly_spend / ventas_nuevas
 
-# KPIs
 col1, col2, col3 = st.columns(3)
 col1.metric("Leads Incrementales", f"{incremental_leads:,.0f}")
 col2.metric("Ventas Incrementales", f"{incremental_ventas:,.0f}")
@@ -261,7 +262,7 @@ col3.metric("Elasticidad (b)", f"{b:.2f}")
 
 st.markdown('<div class="section-title">Curva del Canal Seleccionado</div>', unsafe_allow_html=True)
 
-single_spend = np.linspace(0, current_monthly_spend*1.6, 200)
+single_spend = np.linspace(0, current_monthly_spend * 1.6, 200)
 single_leads = monthly_leads(single_spend, a, b)
 single_sales = single_leads * cr
 
@@ -290,6 +291,8 @@ fig_single.update_layout(
 )
 
 st.plotly_chart(fig_single, use_container_width=True)
+
+
 
 
 
