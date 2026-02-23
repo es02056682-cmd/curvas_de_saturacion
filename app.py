@@ -33,14 +33,14 @@ TARGET_CPV = 300
 PULL_CHANNELS = ["SEM_Marca_Pura", "SEM_Marca_Derivada"]
 
 CR_VENTA = {
-    "Display": 0.0473,
-    "Paid_Social": 0.0368,
-    "Pmax": 0.0714,
-    "SEM_Competencia": 0.0434,
-    "SEM_Generico": 0.1399,
-    "SEM_Marca_Derivada": 0.0456,
-    "SEM_Marca_Pura": 0.0912,
-    "Terceros": 0.0502
+    "Display": 0.0473,              # 4,73%
+    "Paid_Social": 0.0368,          # 3,68%
+    "Pmax": 0.0714,                 # 7,14%
+    "SEM_Competencia": 0.0434,      # 4,34%
+    "SEM_Generico": 0.1399,         # 13,99%
+    "SEM_Marca_Derivada": 0.0456,   # 4,56%
+    "SEM_Marca_Pura": 0.0912,       # 9,12%
+    "Terceros": 0.0502              # 5,02%
 }
 
 # =====================================================
@@ -279,6 +279,7 @@ fig_single.update_layout(
 )
 
 st.plotly_chart(fig_single, use_container_width=True)
+
 
 
 
