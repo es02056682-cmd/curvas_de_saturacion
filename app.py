@@ -235,26 +235,51 @@ col5.metric("CPV Marginal Actual", f"{mcpv_actual:,.2f} €")
 
 st.markdown('<div class="section-title">Curva del Canal Seleccionado</div>', unsafe_allow_html=True)
 
-single_spend = np.linspace(0, current_monthly_spend * 1.6, 200)
+single_spend = np.linspace(1, current_monthly_spend * 1.6, 200)
+
+single_leads = monthly_leads(single_spend, a, b)
+single_sales = single_leads * cr
+
+single_cpl = single_spend / single_leads
+single_cpv = single_spend / single_sales
 
 fig_single = go.Figure()
 
+# 🔵 Línea Leads (mostrar CPL en hover)
 fig_single.add_trace(go.Scatter(
     x=single_spend,
-    y=monthly_leads(single_spend, a, b),
+    y=single_leads,
     mode="lines",
-    name="Leads"
+    name="Leads",
+    customdata=np.stack([single_cpl], axis=-1),
+    hovertemplate=
+        "<b>Spend:</b> %{x:,.0f} €<br>" +
+        "<b>Leads:</b> %{y:,.0f}<br>" +
+        "<b>CPL:</b> %{customdata[0]:,.2f} €<extra></extra>"
 ))
 
+# 🟠 Línea Ventas (mostrar CPV en hover)
 fig_single.add_trace(go.Scatter(
     x=single_spend,
-    y=monthly_leads(single_spend, a, b) * cr,
+    y=single_sales,
     mode="lines",
-    name="Ventas"
+    name="Ventas",
+    customdata=np.stack([single_cpv], axis=-1),
+    hovertemplate=
+        "<b>Spend:</b> %{x:,.0f} €<br>" +
+        "<b>Ventas:</b> %{y:,.0f}<br>" +
+        "<b>CPV:</b> %{customdata[0]:,.2f} €<extra></extra>"
 ))
 
-fig_single.update_layout(template="plotly_dark")
+fig_single.update_layout(
+    template="plotly_dark",
+    xaxis_title="Spend mensual (€)",
+    yaxis_title="Volumen",
+    hovermode="x unified"
+)
+
 st.plotly_chart(fig_single, use_container_width=True)
+
 
 
 
