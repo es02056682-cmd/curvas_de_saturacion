@@ -58,10 +58,15 @@ def load_data():
         "Leads Brutos": "Leads"
     })
 
+    # 🔹 AÑADIDO: gestión fecha y mes
+    df["Fecha"] = pd.to_datetime(df["Fecha"])
+    df["Mes"] = df["Fecha"].dt.to_period("M").astype(str)
+
     df["Leads"] = df["Leads"].fillna(0)
     df = df[df["Spend"] > 0]
 
     return df
+
 
 df = load_data()
 
@@ -187,6 +192,14 @@ col2.plotly_chart(fig_cpv, use_container_width=True)
 
 st.markdown('<div class="section-title">Simulador por Canal</div>', unsafe_allow_html=True)
 
+# 🔹 Filtro por mes
+meses_disponibles = sorted(df["Mes"].unique())
+
+mes_seleccionado = st.selectbox(
+    "Filtrar modelo por mes",
+    ["Histórico Completo"] + meses_disponibles
+)
+
 colA, colB = st.columns(2)
 
 with colA:
@@ -195,8 +208,33 @@ with colA:
 with colB:
     extra_budget = st.slider("Presupuesto extra mensual (€)", 0, 50000, 5000, step=1000)
 
-a = params_df.loc[canal, "a"]
-b = params_df.loc[canal, "b"]
+# 🔹 Reajuste del modelo según mes seleccionado
+if mes_seleccionado == "Histórico Completo":
+    a = params_df.loc[canal, "a"]
+    b = params_df.loc[canal, "b"]
+else:
+    data_fit = df[
+        (df["Canal"] == canal) &
+        (df["Mes"] == mes_seleccionado)
+    ]
+
+    data_fit = data_fit[data_fit["Spend"] > MIN_SPEND_THRESHOLD]
+
+    if len(data_fit) > 10:
+        params_mes, _ = curve_fit(
+            power_model,
+            data_fit["Spend"],
+            data_fit["Leads"],
+            bounds=([0, 0], [np.inf, 1]),
+            maxfev=20000
+        )
+        a = params_mes[0]
+        b = params_mes[1]
+    else:
+        st.warning("No hay suficientes datos en ese mes. Usando histórico completo.")
+        a = params_df.loc[canal, "a"]
+        b = params_df.loc[canal, "b"]
+
 cr = CR_VENTA.get(canal, 0.05)
 
 current_monthly_spend = params_df.loc[canal, "Spend_Mensual_Promedio"]
@@ -312,6 +350,7 @@ else:
     )
 
     st.dataframe(allocation_df.style.format("{:,.0f}"))
+
 
 
 
