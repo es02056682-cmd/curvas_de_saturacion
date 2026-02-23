@@ -58,6 +58,9 @@ def load_data():
         "Leads Brutos": "Leads"
     })
 
+    df["Fecha"] = pd.to_datetime(df["Fecha"], errors="coerce", dayfirst=True)
+    df["Mes"] = df["Fecha"].dt.to_period("M").astype(str)
+
     df["Leads"] = df["Leads"].fillna(0)
     df = df[df["Spend"] > 0]
 
@@ -104,13 +107,12 @@ for canal in df["Canal"].unique():
 
 params_df = pd.DataFrame(results).T
 
-# Clasificación Push / Pull
 params_df["Tipo"] = [
     "Pull" if canal in PULL_CHANNELS else "Push"
     for canal in params_df.index
 ]
 
-# Inversión promedio mensual actual
+# Inversión promedio mensual
 avg_spend_df = (
     df.groupby("Canal")["Spend"]
     .mean()
@@ -133,12 +135,15 @@ params_df = params_df.merge(
 st.markdown("<h1>📊 Performance Scaling Dashboard</h1>", unsafe_allow_html=True)
 
 # =====================================================
-# VISIÓN GENERAL CPL & CPV
+# VISIÓN GENERAL – CPL & CPV
 # =====================================================
 
 st.markdown('<div class="section-title">Visión General – CPL y CPV</div>', unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
+
+fig_cpl = go.Figure()
+fig_cpv = go.Figure()
 
 avg_monthly_spend = df["Spend"].mean() * DAYS_IN_MONTH
 min_real_spend = avg_monthly_spend * 0.3
@@ -148,9 +153,6 @@ spend_range = np.linspace(
     df["Spend"].max() * DAYS_IN_MONTH * 1.3,
     200
 )
-
-fig_cpl = go.Figure()
-fig_cpv = go.Figure()
 
 for canal in params_df.index:
 
@@ -174,6 +176,58 @@ for canal in params_df.index:
         mode="lines",
         name=canal
     ))
+
+    # =====================================================
+    # PUNTO ÓPTIMO (Push)
+    # =====================================================
+
+    if params_df.loc[canal, "Tipo"] == "Push":
+
+        try:
+            optimal_daily_spend = (1 / (a * b * TARGET_CPL)) ** (1 / (b - 1))
+            optimal_monthly_spend = optimal_daily_spend * DAYS_IN_MONTH
+
+            optimal_leads = monthly_leads(optimal_monthly_spend, a, b)
+            optimal_cpl = optimal_monthly_spend / optimal_leads
+
+            fig_cpl.add_trace(go.Scatter(
+                x=[optimal_monthly_spend],
+                y=[optimal_cpl],
+                mode="markers",
+                marker=dict(size=12, symbol="diamond"),
+                name=f"{canal} - Óptimo"
+            ))
+        except:
+            pass
+
+    # =====================================================
+    # PUNTO ENERO
+    # =====================================================
+
+    enero_data = df[
+        (df["Canal"] == canal) &
+        (df["Mes"].str.contains("-01"))
+    ]
+
+    if len(enero_data) > 5:
+        avg_daily_jan = enero_data["Spend"].mean()
+        monthly_jan = avg_daily_jan * DAYS_IN_MONTH
+        leads_jan = monthly_leads(monthly_jan, a, b)
+        cpl_jan = monthly_jan / leads_jan
+
+        fig_cpl.add_trace(go.Scatter(
+            x=[monthly_jan],
+            y=[cpl_jan],
+            mode="markers",
+            marker=dict(size=10, symbol="circle"),
+            name=f"{canal} - Enero"
+        ))
+
+fig_cpl.add_hline(
+    y=TARGET_CPL,
+    line_dash="dash",
+    line_color="red"
+)
 
 fig_cpl.update_layout(template="plotly_dark", title="CPL por Canal")
 fig_cpv.update_layout(template="plotly_dark", title="CPV por Canal")
@@ -208,14 +262,8 @@ new_leads = monthly_leads(new_monthly_spend, a, b)
 ventas_actuales = current_leads * cr
 ventas_nuevas = new_leads * cr
 
-# =====================================================
-# MÉTRICAS DEL SIMULADOR
-# =====================================================
-
-# CPV medio actual
 cpv_medio = current_monthly_spend / ventas_actuales if ventas_actuales > 0 else 0
 
-# CPV marginal actual
 current_daily_spend = current_monthly_spend / DAYS_IN_MONTH
 mcpl_actual = marginal_cpl(current_daily_spend, a, b)
 mcpv_actual = mcpl_actual / cr
@@ -227,92 +275,6 @@ col2.metric("Leads Incrementales", f"{(new_leads-current_leads):,.0f}")
 col3.metric("Ventas Incrementales", f"{(ventas_nuevas-ventas_actuales):,.0f}")
 col4.metric("CPV Medio Mensual", f"{cpv_medio:,.2f} €")
 col5.metric("CPV Marginal Actual", f"{mcpv_actual:,.2f} €")
-
-
-# =====================================================
-# CURVA INDIVIDUAL
-# =====================================================
-
-st.markdown('<div class="section-title">Curva del Canal Seleccionado</div>', unsafe_allow_html=True)
-
-single_spend = np.linspace(0, current_monthly_spend * 1.6, 200)
-
-fig_single = go.Figure()
-
-fig_single.add_trace(go.Scatter(
-    x=single_spend,
-    y=monthly_leads(single_spend, a, b),
-    mode="lines",
-    name="Leads"
-))
-
-fig_single.add_trace(go.Scatter(
-    x=single_spend,
-    y=monthly_leads(single_spend, a, b) * cr,
-    mode="lines",
-    name="Ventas"
-))
-
-fig_single.update_layout(template="plotly_dark")
-st.plotly_chart(fig_single, use_container_width=True)
-
-# =====================================================
-# OPTIMIZADOR AUTOMÁTICO PUSH (POR CPV TOTAL)
-# =====================================================
-
-st.markdown('<div class="section-title">Optimización Automática Presupuesto Push (CPV Total)</div>', unsafe_allow_html=True)
-
-extra_total = st.slider(
-    "Presupuesto total a distribuir en Push (€)",
-    0, 100000, 20000, step=5000
-)
-
-push_channels = params_df[params_df["Tipo"] == "Push"].index
-
-allocation = {}
-efficiency_scores = []
-
-for canal in push_channels:
-
-    a = params_df.loc[canal, "a"]
-    b = params_df.loc[canal, "b"]
-    cr = CR_VENTA.get(canal, 0.05)
-
-    spend_mensual = params_df.loc[canal, "Spend_Mensual_Promedio"]
-
-    # Ventas actuales estimadas
-    leads = monthly_leads(spend_mensual, a, b)
-    ventas = leads * cr
-
-    if ventas > 0:
-        cpv_total = spend_mensual / ventas
-
-        # 🔥 Filtro hasta 400€
-        if cpv_total <= TARGET_CPV:
-            efficiency_scores.append((canal, cpv_total))
-
-if len(efficiency_scores) == 0:
-    st.warning("Ningún canal Push cumple el criterio de CPV total ≤ 400€.")
-else:
-
-    # Ordenamos de más rentable a menos
-    efficiency_scores.sort(key=lambda x: x[1])
-
-    # 🔥 Ponderación agresiva (más peso a CPV bajo)
-    total_inverse = sum(1 / (score[1] ** 2) for score in efficiency_scores)
-
-    for canal, cpv_total in efficiency_scores:
-        weight = (1 / (cpv_total ** 2)) / total_inverse
-        allocation[canal] = weight * extra_total
-
-    allocation_df = pd.DataFrame.from_dict(
-        allocation,
-        orient="index",
-        columns=["Asignación Recomendada (€)"]
-    )
-
-    st.dataframe(allocation_df.style.format("{:,.0f}"))
-
 
 
 
