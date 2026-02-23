@@ -28,7 +28,7 @@ h1 { text-align: center; color: white; }
 
 DAYS_IN_MONTH = 30
 TARGET_CPL = 40
-TARGET_CPV = 120
+TARGET_CPV = 400
 
 PULL_CHANNELS = ["SEM_Marca_Pura", "SEM_Marca_Derivada"]
 
@@ -288,6 +288,7 @@ else:
     )
 
     st.dataframe(allocation_df.style.format("{:,.0f}"))
+
 
 
 
