@@ -279,8 +279,14 @@ for canal in push_channels:
 
     current_daily_spend = df[df["Canal"] == canal]["Spend"].mean()
     mcpl = marginal_cpl(current_daily_spend, a, b)
+    cr = CR_VENTA.get(canal, 0.05)
 
-    efficiency_scores.append((canal, mcpl))
+    mcpv = mcpl / cr  # coste marginal por venta
+
+    # Solo consideramos canales rentables
+    if mcpv <= TARGET_CPV:
+        efficiency_scores.append((canal, mcpv))
+)
 
 efficiency_scores.sort(key=lambda x: x[1])
 
@@ -297,3 +303,4 @@ allocation_df = pd.DataFrame.from_dict(
 )
 
 st.dataframe(allocation_df.style.format("{:,.0f}"))
+
