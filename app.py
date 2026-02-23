@@ -267,18 +267,22 @@ for canal in push_channels:
     mcpl = marginal_cpl(current_daily_spend, a, b)
     mcpv = mcpl / cr
 
+    # 🔥 Permitimos hasta 400€
     if mcpv <= TARGET_CPV:
         efficiency_scores.append((canal, mcpv))
 
 if len(efficiency_scores) == 0:
-    st.warning("Ningún canal Push cumple el criterio de rentabilidad marginal.")
+    st.warning("Ningún canal Push cumple el criterio de rentabilidad marginal (≤ 400€).")
 else:
 
+    # Ordenamos de más rentable a menos
     efficiency_scores.sort(key=lambda x: x[1])
-    total_inverse = sum(1 / score[1] for score in efficiency_scores)
+
+    # 🔥 Ponderación más agresiva (prioriza mucho más los rentables)
+    total_inverse = sum(1 / (score[1] ** 2) for score in efficiency_scores)
 
     for canal, mcpv in efficiency_scores:
-        weight = (1 / mcpv) / total_inverse
+        weight = (1 / (mcpv ** 2)) / total_inverse
         allocation[canal] = weight * extra_total
 
     allocation_df = pd.DataFrame.from_dict(
@@ -288,6 +292,8 @@ else:
     )
 
     st.dataframe(allocation_df.style.format("{:,.0f}"))
+
+
 
 
 
