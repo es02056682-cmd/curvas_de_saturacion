@@ -27,10 +27,18 @@ h1 { text-align: center; color: white; }
 """, unsafe_allow_html=True)
 
 DAYS_IN_MONTH = 30
-TARGET_CPL = 40
-TARGET_CPV = 400
+TARGET_CPV = 120
 
 PULL_CHANNELS = ["SEM_Marca_Pura", "SEM_Marca_Derivada"]
+
+# Canales que gestionáis internamente (prioritarios)
+PRIORITY_CHANNELS = [
+    "SEM_Generico",
+    "Paid_Social",
+    "Pmax",
+    "Display",
+    "SEM_Competencia"
+]
 
 CR_VENTA = {
     "Display": 0.0473,
@@ -79,7 +87,7 @@ def marginal_cpl(spend_daily, a, b):
     return 1 / (a * b * (spend_daily ** (b - 1)))
 
 # =====================================================
-# AJUSTE ROBUSTO
+# AJUSTE
 # =====================================================
 
 results = {}
@@ -104,13 +112,11 @@ for canal in df["Canal"].unique():
 
 params_df = pd.DataFrame(results).T
 
-# Clasificación Push / Pull
 params_df["Tipo"] = [
     "Pull" if canal in PULL_CHANNELS else "Push"
     for canal in params_df.index
 ]
 
-# Inversión promedio mensual actual
 avg_spend_df = (
     df.groupby("Canal")["Spend"]
     .mean()
@@ -131,55 +137,6 @@ params_df = params_df.merge(
 # =====================================================
 
 st.markdown("<h1>📊 Performance Scaling Dashboard</h1>", unsafe_allow_html=True)
-
-# =====================================================
-# VISIÓN GENERAL CPL & CPV
-# =====================================================
-
-st.markdown('<div class="section-title">Visión General – CPL y CPV</div>', unsafe_allow_html=True)
-
-col1, col2 = st.columns(2)
-
-avg_monthly_spend = df["Spend"].mean() * DAYS_IN_MONTH
-min_real_spend = avg_monthly_spend * 0.3
-
-spend_range = np.linspace(
-    min_real_spend,
-    df["Spend"].max() * DAYS_IN_MONTH * 1.3,
-    200
-)
-
-fig_cpl = go.Figure()
-fig_cpv = go.Figure()
-
-for canal in params_df.index:
-
-    a = params_df.loc[canal, "a"]
-    b = params_df.loc[canal, "b"]
-    cr = CR_VENTA.get(canal, 0.05)
-
-    leads_curve = monthly_leads(spend_range, a, b)
-    ventas_curve = leads_curve * cr
-
-    fig_cpl.add_trace(go.Scatter(
-        x=spend_range,
-        y=spend_range / leads_curve,
-        mode="lines",
-        name=canal
-    ))
-
-    fig_cpv.add_trace(go.Scatter(
-        x=spend_range,
-        y=spend_range / ventas_curve,
-        mode="lines",
-        name=canal
-    ))
-
-fig_cpl.update_layout(template="plotly_dark", title="CPL por Canal")
-fig_cpv.update_layout(template="plotly_dark", title="CPV por Canal")
-
-col1.plotly_chart(fig_cpl, use_container_width=True)
-col2.plotly_chart(fig_cpv, use_container_width=True)
 
 # =====================================================
 # SIMULADOR INDIVIDUAL
@@ -214,37 +171,10 @@ col2.metric("Leads Incrementales", f"{(new_leads-current_leads):,.0f}")
 col3.metric("Ventas Incrementales", f"{(ventas_nuevas-ventas_actuales):,.0f}")
 
 # =====================================================
-# CURVA INDIVIDUAL
+# OPTIMIZADOR PUSH PRIORIZADO
 # =====================================================
 
-st.markdown('<div class="section-title">Curva del Canal Seleccionado</div>', unsafe_allow_html=True)
-
-single_spend = np.linspace(0, current_monthly_spend * 1.6, 200)
-
-fig_single = go.Figure()
-
-fig_single.add_trace(go.Scatter(
-    x=single_spend,
-    y=monthly_leads(single_spend, a, b),
-    mode="lines",
-    name="Leads"
-))
-
-fig_single.add_trace(go.Scatter(
-    x=single_spend,
-    y=monthly_leads(single_spend, a, b) * cr,
-    mode="lines",
-    name="Ventas"
-))
-
-fig_single.update_layout(template="plotly_dark")
-st.plotly_chart(fig_single, use_container_width=True)
-
-# =====================================================
-# OPTIMIZADOR AUTOMÁTICO PUSH (POR VENTAS)
-# =====================================================
-
-st.markdown('<div class="section-title">Optimización Automática Presupuesto Push (por Ventas)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Optimización Presupuesto Push (Prioridad Interna)</div>', unsafe_allow_html=True)
 
 extra_total = st.slider(
     "Presupuesto total a distribuir en Push (€)",
@@ -253,8 +183,7 @@ extra_total = st.slider(
 
 push_channels = params_df[params_df["Tipo"] == "Push"].index
 
-allocation = {}
-efficiency_scores = []
+valid_channels = []
 
 for canal in push_channels:
 
@@ -268,18 +197,30 @@ for canal in push_channels:
     mcpv = mcpl / cr
 
     if mcpv <= TARGET_CPV:
-        efficiency_scores.append((canal, mcpv))
+        valid_channels.append((canal, mcpv))
 
-if len(efficiency_scores) == 0:
-    st.warning("Ningún canal Push cumple el criterio de rentabilidad marginal.")
+if len(valid_channels) == 0:
+    st.warning("Ningún canal Push cumple criterio de rentabilidad marginal.")
 else:
 
-    efficiency_scores.sort(key=lambda x: x[1])
-    total_inverse = sum(1 / score[1] for score in efficiency_scores)
+    # Separar prioritarios
+    priority = [c for c in valid_channels if c[0] in PRIORITY_CHANNELS]
+    others = [c for c in valid_channels if c[0] not in PRIORITY_CHANNELS]
 
-    for canal, mcpv in efficiency_scores:
-        weight = (1 / mcpv) / total_inverse
-        allocation[canal] = weight * extra_total
+    allocation = {}
+
+    def allocate(channel_list, budget):
+        total_inverse = sum(1 / c[1] for c in channel_list)
+        result = {}
+        for canal, mcpv in channel_list:
+            weight = (1 / mcpv) / total_inverse
+            result[canal] = weight * budget
+        return result
+
+    if priority:
+        allocation = allocate(priority, extra_total)
+    else:
+        allocation = allocate(valid_channels, extra_total)
 
     allocation_df = pd.DataFrame.from_dict(
         allocation,
@@ -288,7 +229,3 @@ else:
     )
 
     st.dataframe(allocation_df.style.format("{:,.0f}"))
-
-
-
-
