@@ -27,11 +27,10 @@ h1 { text-align: center; color: white; }
 """, unsafe_allow_html=True)
 
 DAYS_IN_MONTH = 30
-TARGET_CPV = 120
+TARGET_CPV = 400  # 👈 Tolerancia hasta 400€
 
 PULL_CHANNELS = ["SEM_Marca_Pura", "SEM_Marca_Derivada"]
 
-# Canales que gestionáis internamente (prioritarios)
 PRIORITY_CHANNELS = [
     "SEM_Generico",
     "Paid_Social",
@@ -87,7 +86,7 @@ def marginal_cpl(spend_daily, a, b):
     return 1 / (a * b * (spend_daily ** (b - 1)))
 
 # =====================================================
-# AJUSTE
+# AJUSTE ROBUSTO
 # =====================================================
 
 results = {}
@@ -117,6 +116,7 @@ params_df["Tipo"] = [
     for canal in params_df.index
 ]
 
+# Inversión promedio mensual actual
 avg_spend_df = (
     df.groupby("Canal")["Spend"]
     .mean()
@@ -165,16 +165,52 @@ new_leads = monthly_leads(new_monthly_spend, a, b)
 ventas_actuales = current_leads * cr
 ventas_nuevas = new_leads * cr
 
-col1, col2, col3 = st.columns(3)
+new_cpv = new_monthly_spend / ventas_nuevas
+
+col1, col2, col3, col4 = st.columns(4)
+
 col1.metric("Inversión mensual promedio actual", f"{current_monthly_spend:,.0f} €")
 col2.metric("Leads Incrementales", f"{(new_leads-current_leads):,.0f}")
 col3.metric("Ventas Incrementales", f"{(ventas_nuevas-ventas_actuales):,.0f}")
+col4.metric("Nuevo CPV Canal", f"{new_cpv:,.2f} €")
+
+# =====================================================
+# CPL & CPV GLOBAL
+# =====================================================
+
+total_spend_actual = params_df["Spend_Mensual_Promedio"].sum()
+
+total_leads_actual = 0
+total_sales_actual = 0
+
+for c in params_df.index:
+    a_c = params_df.loc[c, "a"]
+    b_c = params_df.loc[c, "b"]
+    cr_c = CR_VENTA.get(c, 0.05)
+    spend_c = params_df.loc[c, "Spend_Mensual_Promedio"]
+
+    leads_c = monthly_leads(spend_c, a_c, b_c)
+    sales_c = leads_c * cr_c
+
+    total_leads_actual += leads_c
+    total_sales_actual += sales_c
+
+total_spend_new = total_spend_actual + extra_budget
+total_leads_new = total_leads_actual - current_leads + new_leads
+total_sales_new = total_sales_actual - ventas_actuales + ventas_nuevas
+
+global_cpl_new = total_spend_new / total_leads_new
+global_cpv_new = total_spend_new / total_sales_new
+
+col5, col6 = st.columns(2)
+col5.metric("Nuevo CPL Global", f"{global_cpl_new:,.2f} €")
+col6.metric("Nuevo CPV Global", f"{global_cpv_new:,.2f} €")
 
 # =====================================================
 # OPTIMIZADOR PUSH PRIORIZADO
 # =====================================================
 
-st.markdown('<div class="section-title">Optimización Presupuesto Push (Prioridad Interna)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Optimización Presupuesto Push (por Ventas)</div>', unsafe_allow_html=True)
 
 extra_total = st.slider(
     "Presupuesto total a distribuir en Push (€)",
@@ -203,11 +239,8 @@ if len(valid_channels) == 0:
     st.warning("Ningún canal Push cumple criterio de rentabilidad marginal.")
 else:
 
-    # Separar prioritarios
     priority = [c for c in valid_channels if c[0] in PRIORITY_CHANNELS]
     others = [c for c in valid_channels if c[0] not in PRIORITY_CHANNELS]
-
-    allocation = {}
 
     def allocate(channel_list, budget):
         total_inverse = sum(1 / c[1] for c in channel_list)
@@ -216,6 +249,8 @@ else:
             weight = (1 / mcpv) / total_inverse
             result[canal] = weight * budget
         return result
+
+    allocation = {}
 
     if priority:
         allocation = allocate(priority, extra_total)
