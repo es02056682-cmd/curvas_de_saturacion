@@ -208,10 +208,26 @@ new_leads = monthly_leads(new_monthly_spend, a, b)
 ventas_actuales = current_leads * cr
 ventas_nuevas = new_leads * cr
 
-col1, col2, col3 = st.columns(3)
+# =====================================================
+# MÉTRICAS DEL SIMULADOR
+# =====================================================
+
+# CPV medio actual
+cpv_medio = current_monthly_spend / ventas_actuales if ventas_actuales > 0 else 0
+
+# CPV marginal actual
+current_daily_spend = current_monthly_spend / DAYS_IN_MONTH
+mcpl_actual = marginal_cpl(current_daily_spend, a, b)
+mcpv_actual = mcpl_actual / cr
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
 col1.metric("Inversión mensual promedio actual", f"{current_monthly_spend:,.0f} €")
 col2.metric("Leads Incrementales", f"{(new_leads-current_leads):,.0f}")
 col3.metric("Ventas Incrementales", f"{(ventas_nuevas-ventas_actuales):,.0f}")
+col4.metric("CPV Medio Mensual", f"{cpv_medio:,.2f} €")
+col5.metric("CPV Marginal Actual", f"{mcpv_actual:,.2f} €")
+
 
 # =====================================================
 # CURVA INDIVIDUAL
@@ -296,6 +312,7 @@ else:
     )
 
     st.dataframe(allocation_df.style.format("{:,.0f}"))
+
 
 
 
