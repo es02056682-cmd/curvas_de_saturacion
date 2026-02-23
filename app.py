@@ -285,7 +285,7 @@ for canal in push_channels:
 
     # Solo consideramos canales rentables
     if mcpv <= TARGET_CPV:
-        efficiency_scores.append((canal, mcpv))
+    efficiency_scores.append((canal, mcpv))
 )
 
 efficiency_scores.sort(key=lambda x: x[1])
@@ -303,4 +303,5 @@ allocation_df = pd.DataFrame.from_dict(
 )
 
 st.dataframe(allocation_df.style.format("{:,.0f}"))
+
 
