@@ -19,17 +19,8 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-body {
-    background-color: #0E1117;
-}
-h1 {
-    text-align: center;
-    color: white;
-}
-h2 {
-    color: white;
-    font-weight: 800;
-}
+body { background-color: #0E1117; }
+h1 { text-align: center; color: white; }
 .section-title {
     font-size: 22px;
     font-weight: 800;
@@ -48,6 +39,12 @@ TARGET_CPL = 40
 TARGET_CPV = 120
 
 # =====================================================
+# PUSH / PULL DEFINITION
+# =====================================================
+
+PULL_CHANNELS = ["SEM_Marca_Pura", "SEM_Marca_Derivada"]
+
+# =====================================================
 # CONVERSION RATES
 # =====================================================
 
@@ -60,21 +57,6 @@ CR_VENTA = {
     "SEM_Marca_Derivada": 0.0456,
     "SEM_Marca_Pura": 0.0912,
     "Terceros": 0.0502
-}
-
-# =====================================================
-# CHANNEL COLORS
-# =====================================================
-
-CHANNEL_COLORS = {
-    "SEM_Marca_Pura": "#6A0DAD",
-    "SEM_Marca_Derivada": "#B57EDC",
-    "Terceros": "#2E7D32",
-    "Pmax": "#1C1C1C",
-    "Paid_Social": "#F57C00",
-    "SEM_Generico": "#0288D1",
-    "SEM_Competencia": "#E91E63",
-    "Display": "#7CB342"
 }
 
 # =====================================================
@@ -113,38 +95,52 @@ def marginal_cpl(spend_daily, a, b):
     return 1 / (a * b * (spend_daily ** (b - 1)))
 
 # =====================================================
-# FIT ROBUSTO (AJUSTE ECONÓMICO)
+# FIT ROBUSTO
 # =====================================================
 
 results = {}
-MIN_SPEND_THRESHOLD = 100  # filtro anti-ruido
+MIN_SPEND_THRESHOLD = 100
 
 for canal in df["Canal"].unique():
 
     data = df[df["Canal"] == canal]
-
-    # 🔹 eliminar días de spend muy bajo
     data = data[data["Spend"] > MIN_SPEND_THRESHOLD]
 
     if len(data) > 10:
 
-        x = data["Spend"].values
-        y = data["Leads"].values
-
         params, _ = curve_fit(
             power_model,
-            x,
-            y,
-            bounds=([0, 0], [np.inf, 1]),  # 🔒 restricción 0 ≤ b ≤ 1
+            data["Spend"],
+            data["Leads"],
+            bounds=([0, 0], [np.inf, 1]),
             maxfev=20000
         )
 
-        results[canal] = {
-            "a": params[0],
-            "b": params[1]
-        }
+        results[canal] = {"a": params[0], "b": params[1]}
 
 params_df = pd.DataFrame(results).T
+
+# Añadir tipo Push/Pull
+params_df["Tipo"] = [
+    "Pull" if canal in PULL_CHANNELS else "Push"
+    for canal in params_df.index
+]
+
+# Inversión promedio mensual actual
+avg_spend_df = (
+    df.groupby("Canal")["Spend"]
+    .mean()
+    .reset_index()
+)
+
+avg_spend_df["Spend_Mensual_Promedio"] = avg_spend_df["Spend"] * DAYS_IN_MONTH
+
+params_df = params_df.merge(
+    avg_spend_df[["Canal", "Spend_Mensual_Promedio"]],
+    left_index=True,
+    right_on="Canal",
+    how="left"
+).set_index("Canal")
 
 # =====================================================
 # HEADER
@@ -160,7 +156,6 @@ st.markdown('<div class="section-title">Visión General – CPL y CPV por Canal<
 
 col1, col2 = st.columns(2)
 
-# Rango operativo realista (evita explosión matemática)
 avg_monthly_spend = df["Spend"].mean() * DAYS_IN_MONTH
 min_real_spend = avg_monthly_spend * 0.3
 
@@ -174,6 +169,7 @@ fig_cpl = go.Figure()
 fig_cpv = go.Figure()
 
 for canal in params_df.index:
+
     a = params_df.loc[canal, "a"]
     b = params_df.loc[canal, "b"]
     cr = CR_VENTA.get(canal, 0.05)
@@ -181,44 +177,28 @@ for canal in params_df.index:
     leads_curve = monthly_leads(spend_range, a, b)
     ventas_curve = leads_curve * cr
 
-    cpl_curve = spend_range / leads_curve
-    cpv_curve = spend_range / ventas_curve
-
     fig_cpl.add_trace(go.Scatter(
         x=spend_range,
-        y=cpl_curve,
+        y=spend_range / leads_curve,
         mode="lines",
-        name=canal,
-        line=dict(color=CHANNEL_COLORS.get(canal, "#999999"), width=3)
+        name=canal
     ))
 
     fig_cpv.add_trace(go.Scatter(
         x=spend_range,
-        y=cpv_curve,
+        y=spend_range / ventas_curve,
         mode="lines",
-        name=canal,
-        line=dict(color=CHANNEL_COLORS.get(canal, "#999999"), width=3)
+        name=canal
     ))
 
-fig_cpl.update_layout(
-    title="CPL por Canal",
-    template="plotly_dark",
-    xaxis_title="Spend mensual (€)",
-    yaxis_title="CPL (€)"
-)
-
-fig_cpv.update_layout(
-    title="CPV por Canal",
-    template="plotly_dark",
-    xaxis_title="Spend mensual (€)",
-    yaxis_title="CPV (€)"
-)
+fig_cpl.update_layout(template="plotly_dark", title="CPL por Canal")
+fig_cpv.update_layout(template="plotly_dark", title="CPV por Canal")
 
 col1.plotly_chart(fig_cpl, use_container_width=True)
 col2.plotly_chart(fig_cpv, use_container_width=True)
 
 # =====================================================
-# CHANNEL SIMULATOR
+# SIMULADOR INDIVIDUAL
 # =====================================================
 
 st.markdown('<div class="section-title">Simulador por Canal</div>', unsafe_allow_html=True)
@@ -235,8 +215,7 @@ a = params_df.loc[canal, "a"]
 b = params_df.loc[canal, "b"]
 cr = CR_VENTA.get(canal, 0.05)
 
-current_daily_spend = df[df["Canal"] == canal]["Spend"].mean()
-current_monthly_spend = current_daily_spend * DAYS_IN_MONTH
+current_monthly_spend = params_df.loc[canal, "Spend_Mensual_Promedio"]
 new_monthly_spend = current_monthly_spend + extra_budget
 
 current_leads = monthly_leads(current_monthly_spend, a, b)
@@ -245,54 +224,76 @@ new_leads = monthly_leads(new_monthly_spend, a, b)
 ventas_actuales = current_leads * cr
 ventas_nuevas = new_leads * cr
 
-incremental_leads = new_leads - current_leads
-incremental_ventas = ventas_nuevas - ventas_actuales
-
-new_cpl = new_monthly_spend / new_leads
-new_cpv = new_monthly_spend / ventas_nuevas
-
 col1, col2, col3 = st.columns(3)
-col1.metric("Leads Incrementales", f"{incremental_leads:,.0f}")
-col2.metric("Ventas Incrementales", f"{incremental_ventas:,.0f}")
-col3.metric("Elasticidad (b)", f"{b:.2f}")
+col1.metric("Inversión mensual promedio actual", f"{current_monthly_spend:,.0f} €")
+col2.metric("Leads Incrementales", f"{(new_leads-current_leads):,.0f}")
+col3.metric("Ventas Incrementales", f"{(ventas_nuevas-ventas_actuales):,.0f}")
 
 # =====================================================
-# SINGLE CHANNEL CURVE
+# CURVA INDIVIDUAL
 # =====================================================
 
 st.markdown('<div class="section-title">Curva del Canal Seleccionado</div>', unsafe_allow_html=True)
 
 single_spend = np.linspace(0, current_monthly_spend * 1.6, 200)
-single_leads = monthly_leads(single_spend, a, b)
-single_sales = single_leads * cr
 
 fig_single = go.Figure()
 
 fig_single.add_trace(go.Scatter(
     x=single_spend,
-    y=single_leads,
+    y=monthly_leads(single_spend, a, b),
     mode="lines",
-    name="Leads",
-    line=dict(color="#0288D1", width=4)
+    name="Leads"
 ))
 
 fig_single.add_trace(go.Scatter(
     x=single_spend,
-    y=single_sales,
+    y=monthly_leads(single_spend, a, b) * cr,
     mode="lines",
-    name="Ventas",
-    line=dict(color="#F57C00", width=4)
+    name="Ventas"
 ))
 
-fig_single.update_layout(
-    template="plotly_dark",
-    xaxis_title="Spend mensual (€)",
-    yaxis_title="Volumen"
-)
-
+fig_single.update_layout(template="plotly_dark")
 st.plotly_chart(fig_single, use_container_width=True)
 
+# =====================================================
+# OPTIMIZADOR AUTOMÁTICO PUSH
+# =====================================================
 
+st.markdown('<div class="section-title">Optimización Automática Presupuesto Push</div>', unsafe_allow_html=True)
 
+extra_total = st.slider(
+    "Presupuesto total a distribuir en Push (€)",
+    0, 100000, 20000, step=5000
+)
 
+push_channels = params_df[params_df["Tipo"] == "Push"].index
 
+allocation = {}
+efficiency_scores = []
+
+for canal in push_channels:
+
+    a = params_df.loc[canal, "a"]
+    b = params_df.loc[canal, "b"]
+
+    current_daily_spend = df[df["Canal"] == canal]["Spend"].mean()
+    mcpl = marginal_cpl(current_daily_spend, a, b)
+
+    efficiency_scores.append((canal, mcpl))
+
+efficiency_scores.sort(key=lambda x: x[1])
+
+total_inverse = sum(1 / score[1] for score in efficiency_scores)
+
+for canal, mcpl in efficiency_scores:
+    weight = (1 / mcpl) / total_inverse
+    allocation[canal] = weight * extra_total
+
+allocation_df = pd.DataFrame.from_dict(
+    allocation,
+    orient="index",
+    columns=["Asignación Recomendada (€)"]
+)
+
+st.dataframe(allocation_df.style.format("{:,.0f}"))
