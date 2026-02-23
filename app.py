@@ -241,10 +241,10 @@ fig_single.update_layout(template="plotly_dark")
 st.plotly_chart(fig_single, use_container_width=True)
 
 # =====================================================
-# OPTIMIZADOR AUTOMÁTICO PUSH (POR VENTAS)
+# OPTIMIZADOR AUTOMÁTICO PUSH (POR CPV TOTAL)
 # =====================================================
 
-st.markdown('<div class="section-title">Optimización Automática Presupuesto Push (por Ventas)</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Optimización Automática Presupuesto Push (CPV Total)</div>', unsafe_allow_html=True)
 
 extra_total = st.slider(
     "Presupuesto total a distribuir en Push (€)",
@@ -262,27 +262,31 @@ for canal in push_channels:
     b = params_df.loc[canal, "b"]
     cr = CR_VENTA.get(canal, 0.05)
 
-    current_daily_spend = params_df.loc[canal, "Spend_Mensual_Promedio"] / DAYS_IN_MONTH
+    spend_mensual = params_df.loc[canal, "Spend_Mensual_Promedio"]
 
-    mcpl = marginal_cpl(current_daily_spend, a, b)
-    mcpv = mcpl / cr
+    # Ventas actuales estimadas
+    leads = monthly_leads(spend_mensual, a, b)
+    ventas = leads * cr
 
-    # 🔥 Permitimos hasta 400€
-    if mcpv <= TARGET_CPV:
-        efficiency_scores.append((canal, mcpv))
+    if ventas > 0:
+        cpv_total = spend_mensual / ventas
+
+        # 🔥 Filtro hasta 400€
+        if cpv_total <= TARGET_CPV:
+            efficiency_scores.append((canal, cpv_total))
 
 if len(efficiency_scores) == 0:
-    st.warning("Ningún canal Push cumple el criterio de rentabilidad marginal (≤ 400€).")
+    st.warning("Ningún canal Push cumple el criterio de CPV total ≤ 400€.")
 else:
 
     # Ordenamos de más rentable a menos
     efficiency_scores.sort(key=lambda x: x[1])
 
-    # 🔥 Ponderación más agresiva (prioriza mucho más los rentables)
+    # 🔥 Ponderación agresiva (más peso a CPV bajo)
     total_inverse = sum(1 / (score[1] ** 2) for score in efficiency_scores)
 
-    for canal, mcpv in efficiency_scores:
-        weight = (1 / (mcpv ** 2)) / total_inverse
+    for canal, cpv_total in efficiency_scores:
+        weight = (1 / (cpv_total ** 2)) / total_inverse
         allocation[canal] = weight * extra_total
 
     allocation_df = pd.DataFrame.from_dict(
@@ -292,6 +296,7 @@ else:
     )
 
     st.dataframe(allocation_df.style.format("{:,.0f}"))
+
 
 
 
