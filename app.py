@@ -5,17 +5,13 @@ from scipy.optimize import curve_fit
 import plotly.graph_objects as go
 
 # =====================================================
-# PAGE CONFIG
+# CONFIGURACIÓN
 # =====================================================
 
 st.set_page_config(
     page_title="Performance Scaling Dashboard",
     layout="wide"
 )
-
-# =====================================================
-# BRAND STYLE
-# =====================================================
 
 st.markdown("""
 <style>
@@ -25,28 +21,16 @@ h1 { text-align: center; color: white; }
     font-size: 22px;
     font-weight: 800;
     color: white;
-    margin-top: 20px;
+    margin-top: 25px;
 }
 </style>
 """, unsafe_allow_html=True)
-
-# =====================================================
-# GLOBAL CONFIG
-# =====================================================
 
 DAYS_IN_MONTH = 30
 TARGET_CPL = 40
 TARGET_CPV = 120
 
-# =====================================================
-# PUSH / PULL DEFINITION
-# =====================================================
-
 PULL_CHANNELS = ["SEM_Marca_Pura", "SEM_Marca_Derivada"]
-
-# =====================================================
-# CONVERSION RATES
-# =====================================================
 
 CR_VENTA = {
     "Display": 0.0473,
@@ -60,7 +44,7 @@ CR_VENTA = {
 }
 
 # =====================================================
-# LOAD DATA
+# CARGA DE DATOS
 # =====================================================
 
 @st.cache_data
@@ -82,7 +66,7 @@ def load_data():
 df = load_data()
 
 # =====================================================
-# MODEL
+# MODELO
 # =====================================================
 
 def power_model(x, a, b):
@@ -95,7 +79,7 @@ def marginal_cpl(spend_daily, a, b):
     return 1 / (a * b * (spend_daily ** (b - 1)))
 
 # =====================================================
-# FIT ROBUSTO
+# AJUSTE ROBUSTO
 # =====================================================
 
 results = {}
@@ -120,7 +104,7 @@ for canal in df["Canal"].unique():
 
 params_df = pd.DataFrame(results).T
 
-# Añadir tipo Push/Pull
+# Clasificación Push / Pull
 params_df["Tipo"] = [
     "Pull" if canal in PULL_CHANNELS else "Push"
     for canal in params_df.index
@@ -149,10 +133,10 @@ params_df = params_df.merge(
 st.markdown("<h1>📊 Performance Scaling Dashboard</h1>", unsafe_allow_html=True)
 
 # =====================================================
-# GLOBAL CPL & CPV CURVES
+# VISIÓN GENERAL CPL & CPV
 # =====================================================
 
-st.markdown('<div class="section-title">Visión General – CPL y CPV por Canal</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Visión General – CPL y CPV</div>', unsafe_allow_html=True)
 
 col1, col2 = st.columns(2)
 
@@ -257,10 +241,10 @@ fig_single.update_layout(template="plotly_dark")
 st.plotly_chart(fig_single, use_container_width=True)
 
 # =====================================================
-# OPTIMIZADOR AUTOMÁTICO PUSH
+# OPTIMIZADOR AUTOMÁTICO PUSH (POR VENTAS)
 # =====================================================
 
-st.markdown('<div class="section-title">Optimización Automática Presupuesto Push</div>', unsafe_allow_html=True)
+st.markdown('<div class="section-title">Optimización Automática Presupuesto Push (por Ventas)</div>', unsafe_allow_html=True)
 
 extra_total = st.slider(
     "Presupuesto total a distribuir en Push (€)",
@@ -276,32 +260,34 @@ for canal in push_channels:
 
     a = params_df.loc[canal, "a"]
     b = params_df.loc[canal, "b"]
-
-    current_daily_spend = df[df["Canal"] == canal]["Spend"].mean()
-    mcpl = marginal_cpl(current_daily_spend, a, b)
     cr = CR_VENTA.get(canal, 0.05)
 
-    mcpv = mcpl / cr  # coste marginal por venta
+    current_daily_spend = params_df.loc[canal, "Spend_Mensual_Promedio"] / DAYS_IN_MONTH
 
-    # Solo consideramos canales rentables
+    mcpl = marginal_cpl(current_daily_spend, a, b)
+    mcpv = mcpl / cr
+
     if mcpv <= TARGET_CPV:
-    efficiency_scores.append((canal, mcpv))
-)
+        efficiency_scores.append((canal, mcpv))
 
-efficiency_scores.sort(key=lambda x: x[1])
+if len(efficiency_scores) == 0:
+    st.warning("Ningún canal Push cumple el criterio de rentabilidad marginal.")
+else:
 
-total_inverse = sum(1 / score[1] for score in efficiency_scores)
+    efficiency_scores.sort(key=lambda x: x[1])
+    total_inverse = sum(1 / score[1] for score in efficiency_scores)
 
-for canal, mcpl in efficiency_scores:
-    weight = (1 / mcpl) / total_inverse
-    allocation[canal] = weight * extra_total
+    for canal, mcpv in efficiency_scores:
+        weight = (1 / mcpv) / total_inverse
+        allocation[canal] = weight * extra_total
 
-allocation_df = pd.DataFrame.from_dict(
-    allocation,
-    orient="index",
-    columns=["Asignación Recomendada (€)"]
-)
+    allocation_df = pd.DataFrame.from_dict(
+        allocation,
+        orient="index",
+        columns=["Asignación Recomendada (€)"]
+    )
 
-st.dataframe(allocation_df.style.format("{:,.0f}"))
+    st.dataframe(allocation_df.style.format("{:,.0f}"))
+
 
 
